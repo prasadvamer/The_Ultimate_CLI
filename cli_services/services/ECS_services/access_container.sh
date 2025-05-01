@@ -1,8 +1,13 @@
 #!/bin/bash
+source utility/select_region.sh
+
 # tempory file were interactiveUI/select.js will write the selected option
 tmp_file_path="/usr/src/app/cli_services/tmp/node_inquirer_select.txt"
+tmp_path="/usr/src/app/cli_services/tmp/"
+obejct_selected="object.json"
+SELECTED_OPTION_OBJECT_PATH=${tmp_path}${obejct_selected}
 
-get_selected_option(){
+get_selected_option() {
   if [[ -f "$tmp_file_path" ]]; then
     SELECTED_OPTION=$(cat "$tmp_file_path")
     rm "$tmp_file_path"
@@ -12,21 +17,23 @@ get_selected_option(){
   fi
 }
 
-echo -e "\n"
-REGION=$(aws configure get region)
-echo "Accessing ECS Containers for $REGION"
+select_region
+# Read the selected region from the JSON file
+if [[ -f "$SELECTED_OPTION_OBJECT_PATH" ]]; then
+  selected_region=$(jq -r '.Name' "$SELECTED_OPTION_OBJECT_PATH") && rm "$SELECTED_OPTION_OBJECT_PATH"
+else
+  echo "Failed to select a region. Exiting."
+  exit 1
+fi
+
+echo "Accessing ECS Containers for $selected_region"
 
 # Get the list of clusters in JSON format
-CLUSTERS_JSON=$(aws ecs list-clusters)
+CLUSTERS_JSON=$(aws ecs list-clusters --region "$selected_region")
 # Pretty print the JSON
 echo "$CLUSTERS_JSON" | jq .
 
-
-
-
-
-
-# PART 1: Extract the clusterArns as an array using 
+# PART 1: Extract the clusterArns as an array using
 
 # Extract the clusterArns as an array using jq
 CLUSTER_ARNS=($(echo $CLUSTERS_JSON | jq -r '.clusterArns[]'))
@@ -53,10 +60,6 @@ SELECTED_CLUSTER=$(get_selected_option)
 
 SELECTED_CLUSTER_NAME=$(aws ecs describe-clusters --clusters "$SELECTED_CLUSTER" --query 'clusters[0].clusterName' --output text)
 
-
-
-
-
 # Terminal Coloring based on the environment
 shopt -s nocasematch
 if [[ $SELECTED_CLUSTER_NAME == *pro* ]]; then
@@ -71,17 +74,9 @@ else
 fi
 shopt -u nocasematch
 
-
 tput setaf $terminal_color
 echo -e "\n$(tput bold)Accesing... $SELECTED_CLUSTER_NAME$(tput sgr0)"
 echo -e "\n\n$(tput bold)$(tput setaf $terminal_color)ENVIRONMENT: $env$(tput sgr0)\n\n"
-
-
-
-
-
-
-
 
 # PART 2: Get the list of services in the selected cluster
 
@@ -106,7 +101,6 @@ if [[ "$SELECTED_TASk" =~ ^error ]]; then
   exit 1
 fi
 
-
 if [[ "$SELECTED_TASk" == "any" ]]; then
   echo -e "\nAccessing first accessible task in the selected cluster..."
   ACCESSING_TASKS=("${TASK_ARNS[@]}")
@@ -116,15 +110,6 @@ else
   echo -e "\n ${ACCESSING_TASKS[@]}"
 fi
 
-
-
-
-
-
-
-
-
-
 # PART 3: Get the container names in to which wants to connect
 
 # Declare an associative array to hold container names for each task
@@ -132,16 +117,16 @@ ALL_CONTAINER_NAMES=()
 
 # Loop through each task ARN
 for TASK_ARN in "${ACCESSING_TASKS[@]}"; do
-    # Describe the task to get detailed information including container details
-    TASK_DESCRIPTION=$(aws ecs describe-tasks --cluster $SELECTED_CLUSTER_NAME --tasks "$TASK_ARN")
+  # Describe the task to get detailed information including container details
+  TASK_DESCRIPTION=$(aws ecs describe-tasks --cluster $SELECTED_CLUSTER_NAME --tasks "$TASK_ARN")
 
-    # Extract the container names using jq
-    CONTAINER_NAMES=$(echo $TASK_DESCRIPTION | jq -r '.tasks[0].containers[].name')
+  # Extract the container names using jq
+  CONTAINER_NAMES=$(echo $TASK_DESCRIPTION | jq -r '.tasks[0].containers[].name')
 
-    # Store the container names in the associative array
-    for CONTAINER_NAME in $CONTAINER_NAMES; do
-        ALL_CONTAINER_NAMES+=("$CONTAINER_NAME")
-    done
+  # Store the container names in the associative array
+  for CONTAINER_NAME in $CONTAINER_NAMES; do
+    ALL_CONTAINER_NAMES+=("$CONTAINER_NAME")
+  done
 done
 
 echo -e "\n"
@@ -152,44 +137,35 @@ if [[ "$SELECTED_CONTAINER_NAME" =~ ^error ]]; then
   exit 1
 fi
 
-
-
-
-
-
-
 # PART 4: check access to the tasks
 if [ ${#ACCESSING_TASKS[@]} -gt 1 ]; then
   for TASK_ARN in "${ACCESSING_TASKS[@]}"; do
     echo "Checking access to task: $TASK_ARN"
     # Attempt to execute a simple command as a connection test
     if aws ecs execute-command \
-      --region "$REGION" \
+      --region "$selected_region" \
       --cluster "$SELECTED_CLUSTER_NAME" \
       --task "$TASK_ARN" \
       --container "$SELECTED_CONTAINER_NAME" \
       --command "/bin/echo Testing access" \
-      --interactive > /dev/null 2>&1; then
-        
+      --interactive >/dev/null 2>&1; then
+
       echo -e "Access to container in task $TASK_ARN: SUCCESS\n\n"
       # Set task_num to the current TASK_ARN and exit the loop
       CONNECTING_TASK=$TASK_ARN
       break
     else
-        echo -e "Access to container in task $TASK_ARN: FAILED\n\n"
+      echo -e "Access to container in task $TASK_ARN: FAILED\n\n"
     fi
   done
 else
   CONNECTING_TASK=${ACCESSING_TASKS[0]}
 fi
 
-
-
-
 # PART 4: Connect to the selected task
 if [ -n "$CONNECTING_TASK" ]; then
   aws ecs execute-command \
-    --region "$REGION" \
+    --region "$selected_region" \
     --cluster "$SELECTED_CLUSTER_NAME" \
     --task "$CONNECTING_TASK" \
     --container "$SELECTED_CONTAINER_NAME" \
