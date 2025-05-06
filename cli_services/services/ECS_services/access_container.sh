@@ -58,7 +58,19 @@ SELECTED_CLUSTER=$(get_selected_option)
 #   echo "File $tmp_file_path does not exist."
 # fi
 
-SELECTED_CLUSTER_NAME=$(aws ecs describe-clusters --clusters "$SELECTED_CLUSTER" --query 'clusters[0].clusterName' --output text)
+# Check if input is a full ARN or just a cluster name
+if [[ "$SELECTED_CLUSTER" == arn:aws:ecs:* ]]; then
+  # Extract the name from ARN
+  SELECTED_CLUSTER_NAME=$(basename "$SELECTED_CLUSTER")
+else
+  SELECTED_CLUSTER_NAME="$SELECTED_CLUSTER"
+fi
+
+# Validate cluster name was extracted
+if [[ -z "$SELECTED_CLUSTER_NAME" ]]; then
+  echo "❌ Error: Could not extract a valid cluster name."
+  exit 1
+fi
 
 # Terminal Coloring based on the environment
 shopt -s nocasematch
@@ -80,7 +92,7 @@ echo -e "\n\n$(tput bold)$(tput setaf $terminal_color)ENVIRONMENT: $env$(tput sg
 
 # PART 2: Get the list of services in the selected cluster
 
-TASKS_JSON=$(aws ecs list-tasks --cluster "$SELECTED_CLUSTER")
+TASKS_JSON=$(aws ecs list-tasks --cluster "$SELECTED_CLUSTER" --region "$selected_region")
 echo "$TASKS_JSON" | jq .
 TASK_ARNS=($(echo $TASKS_JSON | jq -r '.taskArns[]'))
 
@@ -118,7 +130,7 @@ ALL_CONTAINER_NAMES=()
 # Loop through each task ARN
 for TASK_ARN in "${ACCESSING_TASKS[@]}"; do
   # Describe the task to get detailed information including container details
-  TASK_DESCRIPTION=$(aws ecs describe-tasks --cluster $SELECTED_CLUSTER_NAME --tasks "$TASK_ARN")
+  TASK_DESCRIPTION=$(aws ecs describe-tasks --cluster $SELECTED_CLUSTER_NAME --tasks "$TASK_ARN" --region "$selected_region")
 
   # Extract the container names using jq
   CONTAINER_NAMES=$(echo $TASK_DESCRIPTION | jq -r '.tasks[0].containers[].name')
