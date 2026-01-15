@@ -25,6 +25,10 @@ RUN curl --retry 5 --retry-delay 10 -C - "https://s3.amazonaws.com/session-manag
 # Copy the services directory to the container
 COPY ./cli_services ./cli_services
 
+# Copy and set up entrypoint script
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # Make all .sh files in the services directory and its subdirectories executable
 RUN find ./cli_services/services -type f -name "*.sh" -exec chmod +x {} \;
 
@@ -36,4 +40,5 @@ RUN find ./cli_services/services -type f -name "*.sh" -exec chmod +x {} \;
 
 WORKDIR /usr/src/app/cli_services
 
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["bash"]
