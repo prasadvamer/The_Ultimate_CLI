@@ -148,7 +148,7 @@ This feature is ideal for simplifying EC2 instance management and access for dev
     ├── credentials
     │   ├── config
     │   └── credentials
-    └── docker-compose.yml
+    └── compose.yml
     ```
 4. Update the `credentials` directory with your AWS credentials and configuration files as below
 
